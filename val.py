@@ -24,25 +24,44 @@ PAD_COLOR = (114 / 255, 114 / 255, 114 / 255)
 
 
 def run_nms(data, model_out):
-    if data['iou_thres'] == data['iou_thres_kp'] and data['conf_thres_kp'] >= data['conf_thres']:
+    if data['iou_thres'] == data['iou_thres_kp'] and data[
+            'conf_thres_kp'] >= data['conf_thres']:
         # Combined NMS saves ~0.2 ms / image
-        dets = non_max_suppression_kp(model_out, data['conf_thres'], data['iou_thres'], num_coords=data['num_coords'])
+        dets = non_max_suppression_kp(model_out,
+                                      data['conf_thres'],
+                                      data['iou_thres'],
+                                      num_coords=data['num_coords'])
         person_dets = [d[d[:, 5] == 0] for d in dets]
         kp_dets = [d[d[:, 4] >= data['conf_thres_kp']] for d in dets]
         kp_dets = [d[d[:, 5] > 0] for d in kp_dets]
     else:
-        person_dets = non_max_suppression_kp(model_out, data['conf_thres'], data['iou_thres'],
+        person_dets = non_max_suppression_kp(model_out,
+                                             data['conf_thres'],
+                                             data['iou_thres'],
                                              classes=[0],
                                              num_coords=data['num_coords'])
 
-        kp_dets = non_max_suppression_kp(model_out, data['conf_thres_kp'], data['iou_thres_kp'],
-                                         classes=list(range(1, 1 + len(data['kp_flip']))),
+        kp_dets = non_max_suppression_kp(model_out,
+                                         data['conf_thres_kp'],
+                                         data['iou_thres_kp'],
+                                         classes=list(
+                                             range(1,
+                                                   1 + len(data['kp_flip']))),
                                          num_coords=data['num_coords'])
     return person_dets, kp_dets
 
 
-def post_process_batch(data, imgs, paths, shapes, person_dets, kp_dets,
-                       two_stage=False, pad=0, device='cpu', model=None, origins=None):
+def post_process_batch(data,
+                       imgs,
+                       paths,
+                       shapes,
+                       person_dets,
+                       kp_dets,
+                       two_stage=False,
+                       pad=0,
+                       device='cpu',
+                       model=None,
+                       origins=None):
 
     batch_bboxes, batch_poses, batch_scores, batch_ids = [], [], [], []
     n_fused = np.zeros(data['num_coords'] // 2)
@@ -70,50 +89,87 @@ def post_process_batch(data, imgs, paths, shapes, person_dets, kp_dets,
                     y1, y2 = max(y1, 0), min(y2, data['imgsz'])
                     h0, w0 = y2 - y1, x2 - x1
                     crop_shapes.append([(h0, w0)])
-                    crop = np.transpose(imgs[si][:, y1:y2, x1:x2].cpu().numpy(), (1, 2, 0))
-                    crop = cv2.copyMakeBorder(crop, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=PAD_COLOR)  # add padding
+                    crop = np.transpose(
+                        imgs[si][:, y1:y2, x1:x2].cpu().numpy(), (1, 2, 0))
+                    crop = cv2.copyMakeBorder(crop,
+                                              pad,
+                                              pad,
+                                              pad,
+                                              pad,
+                                              cv2.BORDER_CONSTANT,
+                                              value=PAD_COLOR)  # add padding
                     h0 += 2 * pad
                     w0 += 2 * pad
                     origins = [np.array([x1 - pad, y1 - pad, 0])]
-                    crop_pre = letterbox(crop, data['imgsz'], color=PAD_COLOR, stride=gs, auto=False)[0]
-                    crop_input = torch.Tensor(np.transpose(np.expand_dims(crop_pre, axis=0), (0, 3, 1, 2))).to(device)
+                    crop_pre = letterbox(crop,
+                                         data['imgsz'],
+                                         color=PAD_COLOR,
+                                         stride=gs,
+                                         auto=False)[0]
+                    crop_input = torch.Tensor(
+                        np.transpose(np.expand_dims(crop_pre, axis=0),
+                                     (0, 3, 1, 2))).to(device)
 
-                    out = model(crop_input, augment=True, kp_flip=data['kp_flip'], scales=data['scales'], flips=data['flips'])[0]
+                    out = model(crop_input,
+                                augment=True,
+                                kp_flip=data['kp_flip'],
+                                scales=data['scales'],
+                                flips=data['flips'])[0]
                     person_dets, kp_dets = run_nms(data, out)
                     _, poses, scores, img_ids, _ = post_process_batch(
-                        data, crop_input, paths, [[(h0, w0)]], person_dets, kp_dets, device=device, origins=origins)
+                        data,
+                        crop_input,
+                        paths, [[(h0, w0)]],
+                        person_dets,
+                        kp_dets,
+                        device=device,
+                        origins=origins)
 
                     # map back to original image
                     if len(poses):
                         poses = np.stack(poses, axis=0)
                         poses = poses[:, :, :2].reshape(poses.shape[0], -1)
                         poses = scale_coords(imgs[si].shape[1:], poses, shape)
-                        poses = poses.reshape(poses.shape[0], data['num_coords'] // 2, 2)
-                        poses = np.concatenate((poses, np.zeros((poses.shape[0], data['num_coords'] // 2, 1))), axis=-1)
+                        poses = poses.reshape(poses.shape[0],
+                                              data['num_coords'] // 2, 2)
+                        poses = np.concatenate(
+                            (poses,
+                             np.zeros((poses.shape[0], data['num_coords'] // 2,
+                                       1))),
+                            axis=-1)
                     poses = [p for p in poses]  # convert back to list
 
             # SINGLE-STAGE INFERENCE
             else:
                 scores = pd[:, 4].cpu().numpy()  # person detection score
-                bboxes = scale_coords(imgs[si].shape[1:], pd[:, :4], shape).round().cpu().numpy()
-                poses = scale_coords(imgs[si].shape[1:], pd[:, -data['num_coords']:], shape).cpu().numpy()
+                bboxes = scale_coords(imgs[si].shape[1:], pd[:, :4],
+                                      shape).round().cpu().numpy()
+                poses = scale_coords(imgs[si].shape[1:],
+                                     pd[:, -data['num_coords']:],
+                                     shape).cpu().numpy()
                 poses = poses.reshape((nd, -data['num_coords'], 2))
-                poses = np.concatenate((poses, np.zeros((nd, poses.shape[1], 1))), axis=-1)
+                poses = np.concatenate((poses, np.zeros(
+                    (nd, poses.shape[1], 1))),
+                                       axis=-1)
 
                 if data['use_kp_dets'] and nkp:
                     mask = scores > data['conf_thres_kp_person']
                     poses_mask = poses[mask]
 
                     if len(poses_mask):
-                        kpd[:, :4] = scale_coords(imgs[si].shape[1:], kpd[:, :4], shape)
+                        kpd[:, :4] = scale_coords(imgs[si].shape[1:],
+                                                  kpd[:, :4], shape)
                         kpd = kpd[:, :6].cpu()
 
                         for x1, y1, x2, y2, conf, cls in kpd:
                             x, y = np.mean((x1, x2)), np.mean((y1, y2))
                             pose_kps = poses_mask[:, int(cls - 1)]
-                            dist = np.linalg.norm(pose_kps[:, :2] - np.array([[x, y]]), axis=-1)
+                            dist = np.linalg.norm(pose_kps[:, :2] -
+                                                  np.array([[x, y]]),
+                                                  axis=-1)
                             kp_match = np.argmin(dist)
-                            if conf > pose_kps[kp_match, 2] and dist[kp_match] < data['overwrite_tol']:
+                            if conf > pose_kps[kp_match, 2] and dist[
+                                    kp_match] < data['overwrite_tol']:
                                 pose_kps[kp_match] = [x, y, conf]
                                 if data['count_fused']:
                                     n_fused[int(cls - 1)] += 1
@@ -130,7 +186,8 @@ def post_process_batch(data, imgs, paths, shapes, person_dets, kp_dets,
 
 
 @torch.no_grad()
-def run(data,
+def run(
+        data,
         weights=None,  # model.pt path(s)
         batch_size=16,  # batch size
         imgsz=1280,  # inference size (pixels)
@@ -154,8 +211,7 @@ def run(data,
         two_stage=False,
         pad=0,
         save_oks=False,
-        json_name=''
-        ):
+        json_name=''):
 
     if two_stage:  # EXPERIMENTAL
         assert batch_size == 1, 'Batch size must be set to 1 for two-stage processing'
@@ -212,10 +268,19 @@ def run(data,
     # Dataloader
     if not training:
         if device.type != 'cpu':
-            model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-        task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
-        dataloader = create_dataloader(data[task], data['labels'], imgsz, batch_size, gs, rect=rect,
-                                       prefix=colorstr(f'{task}: '), kp_flip=data['kp_flip'])[0]
+            model(
+                torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(
+                    next(model.parameters())))  # run once
+        task = task if task in (
+            'train', 'val', 'test') else 'val'  # path to train/val/test images
+        dataloader = create_dataloader(data[task],
+                                       data['labels'],
+                                       imgsz,
+                                       batch_size,
+                                       gs,
+                                       rect=rect,
+                                       prefix=colorstr(f'{task}: '),
+                                       kp_flip=data['kp_flip'])[0]
 
     seen = 0
     mp, mr, map50, mAP, t0, t1, t2 = 0., 0., 0., 0., 0., 0., 0.
@@ -223,7 +288,8 @@ def run(data,
     json_dump = []
     n_fused = np.zeros(data['num_coords'] // 2)
 
-    for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dataloader, desc='Processing {} images'.format(task))):
+    for batch_i, (imgs, targets, paths, shapes) in enumerate(
+            tqdm(dataloader, desc='Processing {} images'.format(task))):
         t_ = time_sync()
         imgs = imgs.to(device, non_blocking=True)
         imgs = imgs.half() if half else imgs.float()  # uint8 to fp16/32
@@ -234,13 +300,18 @@ def run(data,
         t0 += t - t_
 
         # Run model
-        out, train_out = model(imgs, augment=True, kp_flip=data['kp_flip'], scales=data['scales'], flips=data['flips'])
+        out, train_out = model(imgs,
+                               augment=True,
+                               kp_flip=data['kp_flip'],
+                               scales=data['scales'],
+                               flips=data['flips'])
         t1 += time_sync() - t
 
         # Compute loss
         if train_out:  # only computed if no scale / flipping
             if compute_loss:
-                loss += compute_loss([x.float() for x in train_out], targets)[1]  # box, obj, cls, kp
+                loss += compute_loss([x.float() for x in train_out],
+                                     targets)[1]  # box, obj, cls, kp
 
         t = time_sync()
 
@@ -249,7 +320,8 @@ def run(data,
 
         # Fuse keypoint and pose detections
         _, poses, scores, img_ids, n_fused_batch = post_process_batch(
-            data, imgs, paths, shapes, person_dets, kp_dets, two_stage, pad, device, model)
+            data, imgs, paths, shapes, person_dets, kp_dets, two_stage, pad,
+            device, model)
 
         t2 += time_sync() - t
         seen += len(imgs)
@@ -268,10 +340,10 @@ def run(data,
         save_dir, weights_name = osp.split(weights)
         if not json_name:
             json_name = '{}_{}_c{}_i{}_ck{}_ik{}_ckp{}_t{}.json'.format(
-                task, osp.splitext(weights_name)[0],
-                conf_thres, iou_thres, conf_thres_kp, iou_thres_kp,
-                conf_thres_kp_person, overwrite_tol
-            )
+                task,
+                osp.splitext(weights_name)[0], conf_thres, iou_thres,
+                conf_thres_kp, iou_thres_kp, conf_thres_kp_person,
+                overwrite_tol)
         else:
             if not json_name.endswith('.json'):
                 json_name += '.json'
@@ -279,6 +351,8 @@ def run(data,
     else:
         tmp = tempfile.NamedTemporaryFile(mode='w+b')
         json_path = tmp.name
+        if not json_path.endswith('.json'):
+            json_path += '.json'
 
     with open(json_path, 'w') as f:
         json.dump(json_dump, f)
@@ -305,39 +379,75 @@ def run(data,
     # Print speeds
     t = tuple(x / seen * 1E3 for x in (t0, t1, t2))  # speeds per image
     if not training and task != 'test':
-        os.rename(json_path, osp.splitext(json_path)[0] + '_ap{:.4f}.json'.format(mAP))
+        os.rename(json_path,
+                  osp.splitext(json_path)[0] + '_ap{:.4f}.json'.format(mAP))
         shape = (batch_size, 3, imgsz, imgsz)
-        print(f'Speed: %.3fms pre-process, %.3fms inference, %.3fms NMS per image at shape {shape}' % t)
+        print(
+            f'Speed: %.3fms pre-process, %.3fms inference, %.3fms NMS per image at shape {shape}'
+            % t)
         if count_fused:
             print('Keypoint Objects Fused:', n_fused)
     model.float()  # for training
-    return (mp, mr, map50, mAP, *(loss.cpu() / len(dataloader)).tolist()), np.zeros(nc), t  # for compatibility with train
+    return (mp, mr, map50, mAP, *(loss.cpu() / len(dataloader)).tolist()
+            ), np.zeros(nc), t  # for compatibility with train
 
 
 def parse_opt():
     parser = argparse.ArgumentParser(prog='val.py')
-    parser.add_argument('--data', type=str, default='data/coco-kp.yaml', help='dataset.yaml path')
+    parser.add_argument('--data',
+                        type=str,
+                        default='data/coco-kp.yaml',
+                        help='dataset.yaml path')
     parser.add_argument('--weights', default='kapao_s_coco.pt')
     parser.add_argument('--batch-size', type=int, default=1, help='batch size')
-    parser.add_argument('--imgsz', type=int, default=1280, help='inference size (pixels)')
+    parser.add_argument('--imgsz',
+                        type=int,
+                        default=1280,
+                        help='inference size (pixels)')
     parser.add_argument('--task', default='val', help='train, val, test')
-    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--conf-thres', type=float, default=0.001, help='confidence threshold')
-    parser.add_argument('--iou-thres', type=float, default=0.65, help='NMS IoU threshold')
-    parser.add_argument('--no-kp-dets', action='store_true', help='do not use keypoint objects')
+    parser.add_argument('--device',
+                        default='',
+                        help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--conf-thres',
+                        type=float,
+                        default=0.001,
+                        help='confidence threshold')
+    parser.add_argument('--iou-thres',
+                        type=float,
+                        default=0.65,
+                        help='NMS IoU threshold')
+    parser.add_argument('--no-kp-dets',
+                        action='store_true',
+                        help='do not use keypoint objects')
     parser.add_argument('--conf-thres-kp', type=float, default=0.2)
     parser.add_argument('--conf-thres-kp-person', type=float, default=0.3)
     parser.add_argument('--iou-thres-kp', type=float, default=0.25)
     parser.add_argument('--overwrite-tol', type=int, default=50)
     parser.add_argument('--scales', type=float, nargs='+', default=[1])
     parser.add_argument('--flips', type=int, nargs='+', default=[-1])
-    parser.add_argument('--rect', action='store_true', help='rectangular input image')
-    parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
-    parser.add_argument('--count-fused', action='store_true', help='count the number of fused keypoint objects')
-    parser.add_argument('--two-stage', action='store_true', help='use two-stage inference (experimental)')
-    parser.add_argument('--pad', type=int, default=0, help='padding for two-stage inference')
-    parser.add_argument('--json-name', type=str, default='', help='optional name for saved json file')
-    parser.add_argument('--save-oks', action='store_true', help='save oks scores for all detections (pickle)')
+    parser.add_argument('--rect',
+                        action='store_true',
+                        help='rectangular input image')
+    parser.add_argument('--half',
+                        action='store_true',
+                        help='use FP16 half-precision inference')
+    parser.add_argument('--count-fused',
+                        action='store_true',
+                        help='count the number of fused keypoint objects')
+    parser.add_argument('--two-stage',
+                        action='store_true',
+                        help='use two-stage inference (experimental)')
+    parser.add_argument('--pad',
+                        type=int,
+                        default=0,
+                        help='padding for two-stage inference')
+    parser.add_argument('--json-name',
+                        type=str,
+                        default='',
+                        help='optional name for saved json file')
+    parser.add_argument('--save-oks',
+                        action='store_true',
+                        help='save oks scores for all detections (pickle)')
     opt = parser.parse_args()
     opt.flips = [None if f == -1 else f for f in opt.flips]
     opt.data = check_file(opt.data)  # check file
@@ -346,7 +456,9 @@ def parse_opt():
 
 def main(opt):
     set_logging()
-    print(colorstr('val: ') + ', '.join(f'{k}={v}' for k, v in vars(opt).items()))
+    print(
+        colorstr('val: ') + ', '.join(f'{k}={v}'
+                                      for k, v in vars(opt).items()))
     if opt.task in ('train', 'val', 'test'):  # run normally
         run(**vars(opt))
 
