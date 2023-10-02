@@ -28,6 +28,8 @@ def compare_models(model1, model2):
         if not torch.allclose(model1_weight, model2_weight, atol=1e-7):
             print(f"Weights differ in layer {layer_name}.")
             same_weights = False
+        else:
+            print(f"Same weights in layer {layer_name}.")
 
     if same_weights:
         print("The models have identical weights.")
@@ -41,8 +43,10 @@ def load_and_compare_models(model1_path, model2_path):
         checkpoint2 = torch.load(model2_path)
 
         model1 = checkpoint1['model'] if 'model' in checkpoint1 else checkpoint1
+        # model3 = checkpoint2['model'] if 'model' in checkpoint2 else checkpoint2
         model2 = checkpoint2['model'] if 'model' in checkpoint2 else checkpoint2
 
+        # model2.load_state_dict(torch.load("combined_model.pt"))
         if isinstance(model1, nn.Module) and isinstance(model2, nn.Module):
             compare_models(model1, model2)
         else:
@@ -53,6 +57,6 @@ def load_and_compare_models(model1_path, model2_path):
 
 if __name__ == "__main__":
     model1_path = "yolov5s6.pt"
-    model2_path = "kapao_s_coco.pt"
+    model2_path = "combined_model.pt"
 
     load_and_compare_models(model1_path, model2_path)
