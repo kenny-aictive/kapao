@@ -158,7 +158,7 @@ def post_process_batch(data,
 
                     if len(poses_mask):
                         kpd[:, :4] = scale_coords(imgs[si].shape[1:],
-                                                  kpd[:, :4], shape)
+                                                  kpd[:, :4], shape).clone()
                         kpd = kpd[:, :6].cpu()
 
                         for x1, y1, x2, y2, conf, cls in kpd:
