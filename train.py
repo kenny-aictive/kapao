@@ -533,27 +533,27 @@ def parse_opt(known=False):
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights',
                         type=str,
-                        default='yolov5s6.pt',
+                        default='kapao_s_coco.pt',
                         help='initial weights path')
     parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
     parser.add_argument('--data',
                         type=str,
-                        default='data/coco-kp.yaml',
+                        default='data/aictive.yaml',
                         help='dataset.yaml path')
     parser.add_argument('--hyp',
                         type=str,
                         default='data/hyps/hyp.kp-p6.yaml',
                         help='hyperparameters path')
-    parser.add_argument('--epochs', type=int, default=3)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch-size',
                         type=int,
-                        default=2,
+                        default=100,
                         help='total batch size for all GPUs')
     parser.add_argument('--imgsz',
                         '--img',
                         '--img-size',
                         type=int,
-                        default=320,
+                        default=640,
                         help='train, val image size (pixels)')
     parser.add_argument('--rect',
                         action='store_true',
@@ -603,12 +603,13 @@ def parse_opt(known=False):
                         help='use SyncBatchNorm, only available in DDP mode')
     parser.add_argument('--workers',
                         type=int,
-                        default=0,
+                        default=2,
                         help='maximum number of dataloader workers')
     parser.add_argument('--project',
                         default='runs/train',
                         help='save to project/name')
     parser.add_argument('--entity', default=None, help='W&B entity')
+
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok',
                         action='store_true',
@@ -640,7 +641,7 @@ def parse_opt(known=False):
                         help='DDP parameter, do not modify')
     parser.add_argument('--freeze',
                         type=int,
-                        default=10,
+                        default=33,
                         help='Number of layers to freeze. backbone=10, all=24')
     parser.add_argument(
         '--patience',
